@@ -263,6 +263,13 @@ body.final .door{animation:rattle .45s infinite}
 .pick span{color:var(--mist);line-height:1.55;font-size:14px}
 .pick:focus-visible{outline:2px solid var(--dove);outline-offset:3px}
 
+/* ---------- intro video: plays on every room screen, in sync, before the clock starts ---------- */
+.introv{position:fixed;inset:0;width:100%;height:100%;object-fit:contain;background:#000;z-index:7;display:none}
+.introv.show{display:block}
+.unmute{position:fixed;z-index:7;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);font-size:15px;padding:10px 18px}
+.chk{display:flex;gap:10px;align-items:flex-start;font-size:14px;color:var(--dove);line-height:1.5;cursor:pointer}
+.chk input{width:18px;height:18px;margin-top:2px;accent-color:var(--brass);flex:none}
+
 /* ---------- multi-room site additions ---------- */
 .link-lamp{position:fixed;top:calc(10px + env(safe-area-inset-top,0px));right:max(12px,env(safe-area-inset-right,0px));z-index:6;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--mist);background:rgba(10,19,23,.7);border:1px solid rgba(159,176,178,.2);border-radius:99px;padding:5px 12px}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--mist);flex:none}
@@ -322,10 +329,11 @@ body.final .door{animation:rattle .45s infinite}
   function mmss(ms){if(ms===Infinity||ms==null)return'—';ms=Math.max(0,Math.ceil(ms/1000));var m=Math.floor(ms/60),x=ms%60;return (m<10?'0':'')+m+':'+(x<10?'0':'')+x}
   function toRoman(n){if(!n)return'—';var r='',m=[[1000,'M'],[900,'CM'],[500,'D'],[400,'CD'],[100,'C'],[90,'XC'],[50,'L'],[40,'XL'],[10,'X'],[9,'IX'],[5,'V'],[4,'IV'],[1,'I']];m.forEach(function(p){while(n>=p[0]){r+=p[1];n-=p[0]}});return r}
   function clampRoom(n){n=Math.round(+n);return n>=1&&n<=6?n:0}
+  var INTRO_SRC='intro.mp4',INTRO_MS=176333; // the intro film ends on “15:00 이제 시작이다”
   var PREFIX='noahs-ark-door-v1-',ALPHA='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   function newId(){var s='';for(var i=0;i<4;i++)s+=ALPHA[Math.floor(Math.random()*ALPHA.length)];return s}
   function base(){return location.origin+location.pathname}
-  var PH={connecting:['연결 중','idle'],nohost:['선장실 없음','stop'],idle:['대기','idle'],ready:['출항 대기','wait'],countdown:['출항 중','wait'],running:['진행 중','run'],paused:['일시 정지','wait'],solved:['탈출 성공','run'],timeout:['시간 초과','stop'],ended:['종료','idle']};
+  var PH={connecting:['연결 중','idle'],nohost:['선장실 없음','stop'],idle:['대기','idle'],ready:['방주 앞 대기','wait'],intro:['인트로 영상','wait'],countdown:['카운트다운','wait'],running:['진행 중','run'],paused:['일시 정지','wait'],solved:['탈출 성공','run'],timeout:['시간 초과','stop'],ended:['종료','idle']};
   var FOOT='<div class="foot">300 × 50 × 30 <span>규빗</span><br><span>창세기 6:15 · 방주의 길이, 너비, 높이</span></div>';
   var hasPeer=typeof window.Peer==='function';
 
@@ -338,9 +346,9 @@ body.final .door{animation:rattle .45s infinite}
   function go(search){location.search=search}
 
   function renderHome(){
-    app.innerHTML='<div class="head"><div class="eyebrow">Ark Escape</div><h1>방주의 문</h1><p class="lede">이 컴퓨터를 어디에 쓰나요?</p></div>'+
-      '<div class="choose"><button class="pick" data-go="?host"><b>선장실</b><span>전체 진행자가 모든 방의 코드, 시작, 시간, 힌트를 관리합니다.</span></button>'+
-      '<button class="pick" data-go="?join"><b>방 화면</b><span>참가자가 있는 방에 두는 컴퓨터입니다. 게임 번호를 넣어 선장실과 연결합니다.</span></button></div>'+FOOT;
+    app.innerHTML='<div class="head"><div class="eyebrow">Ark Escape · 마지막 15분</div><h1>방주의 문</h1><p class="lede">대홍수가 시작됐습니다. 이 컴퓨터를 어디에 쓰나요?</p></div>'+
+      '<div class="choose"><button class="pick" data-go="?host"><b>선장실</b><span>전체 진행자가 모든 방의 비밀번호, 시작, 시간, 힌트를 관리합니다.</span></button>'+
+      '<button class="pick" data-go="?join"><b>방 화면</b><span>노아의 가족(참가자)이 있는 방에 두는 컴퓨터입니다. 게임 번호를 넣어 선장실과 연결합니다.</span></button></div>'+FOOT;
   }
   function renderJoin(){
     var g=ls('ark-room-g')||'',r=+(ls('ark-room-r')||0);
@@ -388,7 +396,7 @@ body.final .door{animation:rattle .45s infinite}
     if(!S.round||S.status==='idle')return 'idle';
     if(R.solved||(S.result&&S.result.kind==='solved'))return 'solved';
     var st=S.status;
-    if(st==='running'){if(now()<S.startAt)return 'countdown';if(limitMs()&&remaining()<=0)return 'timeout';return 'running'}
+    if(st==='running'){if(now()<S.startAt)return S.introAt?'intro':'countdown';if(limitMs()&&remaining()<=0)return 'timeout';return 'running'}
     if(st==='paused'||st==='ready')return st;
     if(st==='ended')return (S.endReason==='time'||(S.result&&S.result.kind==='timeout'))?'timeout':'ended';
     return 'idle';
@@ -399,28 +407,53 @@ body.final .door{animation:rattle .45s infinite}
   function head(lede,withClock){
     var eb=(S&&S.round?'Voyage '+toRoman(S.round)+' · ':'')+'<span class="roomtag">'+esc(roomName())+'</span>';
     return '<div class="head"><div class="eyebrow">'+eb+'</div><h1>방주의 문</h1>'+
-      (withClock&&limitMs()?'<div class="clock" role="timer"><span class="t" id="clock">'+mmss(remaining())+'</span><span class="lbl">남은 시간</span></div>':'')+
+      (withClock&&limitMs()?'<div class="clock" role="timer"><span class="t" id="clock">'+mmss(remaining())+'</span><span class="lbl">세상이 물에 잠기기까지</span></div>':'')+
       '<p class="lede">'+lede+'</p></div>';
   }
   function hintBox(){
     if(!S||!S.hint||!S.hint.text)return'';
     var f=freshHint;freshHint=false;
-    return '<div class="hint'+(f?' fresh':'')+'" aria-live="polite"><b>선장의 전언</b><p>'+esc(S.hint.text)+'</p></div>';
+    return '<div class="hint'+(f?' fresh':'')+'" aria-live="polite"><b>노아의 쪽지</b><p>'+esc(S.hint.text)+'</p></div>';
   }
   function notice(title,body){app.innerHTML=head(title,false)+'<div class="door"><div class="wait"><span class="lamp"></span><small>'+body+'</small></div></div>'+FOOT+corners()}
   function renderRoom(){
     var ph=phase();lastPhase=ph;
     cancelAnimationFrame(bowRaf);clearTimeout(lockTimer);
+    if(ph!=='intro')hideIntro();
+    if(ph==='ready'&&S&&S.intro)ensureIntro();
     if(ph==='connecting')return notice('선장실을 찾는 중입니다.','게임 번호 '+esc(GAME)+'의 선장실과 연결하고 있습니다.');
-    if(ph==='nohost')return notice('선장실이 열려 있지 않습니다.','진행자 컴퓨터에서 선장실을 열면 자동으로 연결됩니다.<br>게임 번호 '+esc(GAME)+' · '+ROOM+'번 방');
+    if(ph==='nohost')return notice('노아가 아직 오지 않았습니다.','진행자 컴퓨터에서 선장실을 열면 자동으로 연결됩니다.<br>게임 번호 '+esc(GAME)+' · '+ROOM+'번 방');
     if(ph==='solved')return renderOpen();
     if(ph==='timeout')return renderTimeout();
+    if(ph==='intro')return renderIntro();
     if(ph==='countdown')return renderCountdown();
     renderPlay(ph);
   }
+  // one video element for the whole visit, so the preloaded film is the one that plays
+  var introV=null,unmuteB=null;
+  function ensureIntro(){
+    if(introV)return introV;
+    introV=document.createElement('video');introV.className='introv';introV.src=INTRO_SRC;introV.preload='auto';introV.playsInline=true;introV.setAttribute('playsinline','');
+    document.body.appendChild(introV);
+    unmuteB=document.createElement('button');unmuteB.className='btn unmute';unmuteB.textContent='소리 켜기';unmuteB.hidden=true;
+    unmuteB.addEventListener('click',function(){introV.muted=false;unmuteB.hidden=true;introV.play().catch(noop)});
+    document.body.appendChild(unmuteB);
+    return introV;
+  }
+  function renderIntro(){
+    app.innerHTML='';ensureIntro().classList.add('show');syncIntro();
+  }
+  function hideIntro(){if(introV){introV.classList.remove('show');if(!introV.paused)introV.pause();unmuteB.hidden=true}}
+  function syncIntro(){
+    if(!introV||lastPhase!=='intro'||!S)return;
+    var off=(now()-S.introAt)/1000;
+    if(off<0){if(!introV.paused)introV.pause();if(introV.currentTime>0.05)introV.currentTime=0;return}
+    if(Math.abs(introV.currentTime-off)>0.7)try{introV.currentTime=off}catch(e){}
+    if(introV.paused&&!introV.ended&&!gate)introV.play().catch(function(){introV.muted=true;unmuteB.hidden=false;introV.play().catch(noop)});
+  }
   function renderPlay(ph){
     var live=ph==='running',lk=live&&locked(),off=!live||lk,pad=ph==='running'||ph==='paused';
-    var lede={idle:'다음 항해를 준비하고 있습니다.',ended:'이번 항해는 선장의 명령으로 끝났습니다.',ready:'선장의 출항 신호를 기다리세요.',running:'네 자리 숫자를 맞추면 방주의 문이 열립니다.',paused:'선장이 항해를 잠시 멈췄습니다.'}[ph];
+    var lede={idle:'아버지 노아의 부름을 기다리고 있습니다.',ended:'노아가 이번 게임을 마쳤습니다.',ready:'노아의 가족이 방주 문 앞에 모였습니다. 곧 시작합니다.',running:'노아가 남긴 단서를 풀어 방주 문의 비밀번호를 입력하세요.',paused:'노아가 잠시 시간을 멈췄습니다.'}[ph];
     var slots='';
     for(var i=0;i<4;i++){slots+='<div class="slot'+(entry[i]?' on':'')+(live&&!lk&&i===entry.length?' cur':'')+'">'+(entry[i]||'')+'</div>'}
     var inner;
@@ -432,7 +465,7 @@ body.final .door{animation:rattle .45s infinite}
       keys+='<button class="key go" data-k="go"'+(!off&&entry.length===4?'':' disabled')+'>열기</button>';
       inner=(lk?'<div class="ebb"><i style="animation-duration:'+(R.lockUntil-Date.now())+'ms"></i></div>':'')+'<div class="pad">'+keys+'</div>'+(ph==='paused'?'<div class="halt">항해 일시 정지</div>':'');
     }else{
-      inner='<div class="wait"><span class="lamp"></span><p>'+(ph==='ready'?'출항 대기':'승선 준비 중')+'</p><small>'+(ph==='ready'?'선장이 신호를 보내면 문이 닫히고 시간이 흐르기 시작합니다.':'잠시 후 새 항해가 시작됩니다.')+'</small></div>';
+      inner='<div class="wait"><span class="lamp"></span><p>'+(ph==='ready'?'방주 앞 대기':'부름을 기다리는 중')+'</p><small>'+(ph==='ready'?'노아가 신호를 보내면 비가 쏟아지고 시간이 흐르기 시작합니다.':'잠시 후 새 게임이 시작됩니다.')+'</small></div>';
     }
     app.innerHTML=head(lede,ph==='ready'||pad)+(ph==='ready'||pad?hintBox():'')+
       '<div class="door'+(lk?' locked':'')+'"><div class="slots" id="slots">'+slots+'</div>'+inner+'</div>'+
@@ -440,7 +473,7 @@ body.final .door{animation:rattle .45s infinite}
       FOOT+corners();
     if(lk)lockTimer=setTimeout(tickLock,200);
   }
-  function lockText(ms){return '물이 빠질 때까지 기다리세요 · '+Math.ceil(ms/1000)+'초'}
+  function lockText(ms){return '자물쇠가 다시 맞물리는 중 · '+Math.ceil(ms/1000)+'초'}
   function tickLock(){
     if(lastPhase!=='running')return;
     if(!locked()){renderRoom();return}
@@ -448,7 +481,7 @@ body.final .door{animation:rattle .45s infinite}
     lockTimer=setTimeout(tickLock,200);
   }
   function renderCountdown(){
-    app.innerHTML='<div class="count"><div class="in"><div class="n" id="cnum">'+Math.max(1,Math.ceil((S.startAt-now())/1000))+'</div><p>방주의 문이 닫힙니다</p></div></div>'+corners();
+    app.innerHTML='<div class="count"><div class="in"><div class="n" id="cnum">'+Math.max(1,Math.ceil((S.startAt-now())/1000))+'</div><p>대홍수가 시작됩니다</p></div></div>'+corners();
   }
   function press(k){
     if(phase()!=='running'||busy||locked())return;
@@ -475,14 +508,14 @@ body.final .door{animation:rattle .45s infinite}
   }
   function renderTimeout(){
     app.innerHTML='<div class="drown"><div class="water"></div><div class="txt"><div class="eyebrow">'+resultLine()+'</div>'+
-      '<h2>시간이 다 되었습니다</h2><p>물이 차올라 문을 열지 못했습니다.<br>선장의 다음 지시를 기다리세요.</p></div></div>'+corners();
+      '<h2>세상이 물에 잠겼습니다</h2><p>방주의 문을 열지 못했습니다.<br>노아의 다음 지시를 기다리세요.</p></div></div>'+corners();
   }
   function renderOpen(){
     app.innerHTML='<div class="open"><canvas id="bow"></canvas>'+
       '<svg class="dove" viewBox="0 0 64 40" aria-hidden="true"><path d="M8 22 C14 14 26 12 36 16 C44 12 52 12 58 15 C52 17 49 20 47 23 C40 30 24 31 14 27 Z" fill="#f4efe2"/><path class="w" d="M22 18 C26 4 34 0 42 2 C36 8 33 14 30 19 Z" fill="#e6dfcd"/><circle cx="53" cy="15.5" r="1.1" fill="#2a1c12"/><path d="M58 15 l5 1.5 -5 1.5z" fill="#caa45a"/><path d="M60 17 q3 5 -1 10" stroke="#7f8f45" stroke-width="1.4" fill="none"/><ellipse cx="60.5" cy="22" rx="3.4" ry="1.5" fill="#a9bb6a" transform="rotate(60 60.5 22)"/><ellipse cx="58" cy="26" rx="3" ry="1.3" fill="#a9bb6a" transform="rotate(-30 58 26)"/></svg>'+
       '<div class="leaf l"></div><div class="leaf r"></div>'+
       '<div class="reveal"><div class="eyebrow">'+resultLine()+'</div>'+
-      '<h2>문이 열렸습니다</h2><p>구름 사이로 언약의 무지개가 떴습니다.<br>방주에서 무사히 탈출했습니다.</p></div></div>'+corners();
+      '<h2>방주에 올랐습니다</h2><p>노아의 가족이 모두 방주 안으로 들어갔고, 하나님께서 문을 닫으셨습니다.<br>물이 걷힌 뒤 하늘에는 언약의 무지개가 떴습니다.</p></div></div>'+corners();
     drawBow(document.getElementById('bow'));
   }
   function drawBow(cv){
@@ -590,7 +623,7 @@ body.final .door{animation:rattle .45s infinite}
     lastHostMsg=Date.now();
     if(typeof m.now==='number')offset=m.now-Date.now();
     var prevRound=S&&S.round;
-    S={round:+m.round||0,salt:String(m.salt||''),hash:String(m.hash||''),limit:+m.limit||0,status:String(m.status||'idle'),startAt:+m.startAt||0,pausedAt:+m.pausedAt||0,endReason:String(m.endReason||''),
+    S={round:+m.round||0,salt:String(m.salt||''),hash:String(m.hash||''),limit:+m.limit||0,status:String(m.status||'idle'),startAt:+m.startAt||0,introAt:+m.introAt||0,intro:!!m.intro,pausedAt:+m.pausedAt||0,endReason:String(m.endReason||''),
        hint:m.hint&&m.hint.text?{text:String(m.hint.text).slice(0,300),at:+m.hint.at||0}:null,name:String(m.name||'').slice(0,30),result:m.result||null};
     lsj('ark-room-state-'+GAME+'-'+ROOM,{S:S,offset:offset});
     loadR();
@@ -600,7 +633,9 @@ body.final .door{animation:rattle .45s infinite}
     if(prevRound!==S.round)sendStatus();
   }
   function onPhase(prev,ph){
-    if(prev==='countdown'&&ph==='running'){sfx.slam();strike(.8)}
+    if(ph==='intro'&&prev!=='intro')duck(true);
+    if(prev==='intro'&&ph!=='intro')duck(false);
+    if((prev==='countdown'||prev==='intro')&&ph==='running'){sfx.slam();strike(.8)}
     if(prev&&prev!=='solved'&&ph==='solved'&&!R.solved)sfx.win();
     if(prev==='running'&&ph==='timeout'){strike(1);sfx.drown()}
     if(prev&&prev!=='paused'&&ph==='paused'&&live())sfx.thump(AC.currentTime,90,.5);
@@ -643,7 +678,8 @@ body.final .door{animation:rattle .45s infinite}
   var G=null,hpeer=null,conns={},netState='connecting',ctlKey='',roomsKey='',adminNote=null,endArm=0,newArm=0,showQR=false;
   function loadG(){
     G=lsj('ark-host');
-    if(!G||!G.id)G={id:newId(),round:0,rooms:3,names:['','','','','',''],code:'',salt:'',hash:'',limit:1800,status:'idle',startAt:0,pausedAt:0,endReason:'',hints:{},results:{}};
+    if(!G||!G.id)G={id:newId(),round:0,rooms:3,names:['','','','','',''],code:'',salt:'',hash:'',limit:900,intro:true,status:'idle',startAt:0,introAt:0,pausedAt:0,endReason:'',hints:{},results:{}};
+    if(G.intro===undefined)G.intro=true;if(!G.introAt)G.introAt=0;
     saveG();
   }
   function saveG(){lsj('ark-host',G)}
@@ -656,12 +692,12 @@ body.final .door{animation:rattle .45s infinite}
   }
   function hPhase(){
     if(!G.round||G.status==='idle')return 'idle';
-    if(G.status==='running')return Date.now()<G.startAt?'countdown':'running';
+    if(G.status==='running')return Date.now()<G.startAt?(G.introAt?'intro':'countdown'):'running';
     return G.status;
   }
   function nameOf(r){return (G.names[r-1]||'').trim()||r+'번 방'}
   function statePayload(r){
-    return {t:'state',now:Date.now(),round:G.round,salt:G.salt,hash:G.hash,limit:G.limit,status:G.status,startAt:G.startAt,pausedAt:G.pausedAt,endReason:G.endReason,
+    return {t:'state',now:Date.now(),round:G.round,salt:G.salt,hash:G.hash,limit:G.limit,status:G.status,startAt:G.startAt,introAt:G.introAt,intro:G.intro,pausedAt:G.pausedAt,endReason:G.endReason,
       hint:G.hints[r]||null,name:nameOf(r),result:G.results[r]||null};
   }
   function sendTo(e){if(e.conn.open&&e.room)try{e.conn.send(statePayload(e.room))}catch(x){}}
@@ -751,37 +787,38 @@ body.final .door{animation:rattle .45s infinite}
     var el=document.getElementById('h-status');if(!el)return;
     var ph=hPhase(),p=PH[ph]||PH.idle;
     el.innerHTML='<div class="hd"><h3>'+(G.round?G.round+'회차 항해':'아직 항해 없음')+'</h3><span class="pill '+p[1]+'">'+p[0]+'</span></div>'+
-      '<div class="bigclock" id="hclock">'+(G.limit?mmss(ph==='countdown'||ph==='idle'?G.limit*1000:hRemaining()):'∞')+'</div>'+
+      '<div class="bigclock" id="hclock">'+(G.limit?mmss(ph==='countdown'||ph==='intro'||ph==='idle'?G.limit*1000:hRemaining()):'∞')+'</div>'+
       '<div class="row"><b>코드</b><span>'+(G.round&&G.code?'<span style="font-family:var(--num);letter-spacing:.3em;color:var(--brass)">'+esc(G.code)+'</span>':'—')+'</span></div>'+
       '<div class="row"><b>제한시간</b><span>'+(G.limit?Math.round(G.limit/6)/10+'분':'없음')+'</span></div>'+
       '<div class="row"><b>방</b><span>'+G.rooms+'개</span></div>';
   }
-  function updHClock(){var c=document.getElementById('hclock');if(c){var ph=hPhase();c.textContent=G.limit?mmss(ph==='countdown'||ph==='idle'?G.limit*1000:hRemaining()):'∞'}}
+  function updHClock(){var c=document.getElementById('hclock');if(c){var ph=hPhase();c.textContent=G.limit?mmss(ph==='countdown'||ph==='intro'||ph==='idle'?G.limit*1000:hRemaining()):'∞'}}
   function updCtl(){
     var el=document.getElementById('h-ctl');if(!el)return;
-    var ph=hPhase(),mode=(ph==='idle'||ph==='ended')?'setup':ph==='ready'?'ready':'live:'+G.status+':'+(endArm>Date.now()?'arm':'');
+    var ph=hPhase(),mode=(ph==='idle'||ph==='ended')?'setup':ph==='ready'?'ready':'live:'+ph+':'+(endArm>Date.now()?'arm':'');
     if(mode===ctlKey){updNote();return}
     var keep=null,ci=document.getElementById('code');
-    if(ci)keep={c:ci.value,l:document.getElementById('lim').value,n:document.getElementById('nrooms').value,names:[].map.call(document.querySelectorAll('.names input'),function(x){return x.value})};
+    if(ci)keep={c:ci.value,l:document.getElementById('lim').value,n:document.getElementById('nrooms').value,i:document.getElementById('introchk').checked,names:[].map.call(document.querySelectorAll('.names input'),function(x){return x.value})};
     ctlKey=mode;var h;
     if(mode==='setup'){
       var names='';for(var i=1;i<=6;i++)names+='<input data-name="'+i+'" maxlength="20" placeholder="'+i+'번 방" value="'+esc(G.names[i-1]||'')+'"'+(i>G.rooms?' hidden':'')+' aria-label="'+i+'번 방 팀 이름">';
       var opts='';for(var j=1;j<=6;j++)opts+='<option value="'+j+'"'+(j===G.rooms?' selected':'')+'>'+j+'</option>';
       h='<form id="hf" class="field" style="gap:14px"><h3>'+(G.round?'다음 항해 준비':'새 항해 준비')+'</h3>'+
-        '<div class="fields"><div class="field"><label for="code">4자리 코드 (모든 방 공통)</label><input class="codein" id="code" inputmode="numeric" autocomplete="off" maxlength="4" placeholder="0000"></div>'+
+        '<div class="fields"><div class="field"><label for="code">방주 문 비밀번호 4자리 (모든 방 공통)</label><input class="codein" id="code" inputmode="numeric" autocomplete="off" maxlength="4" placeholder="0000"></div>'+
         '<div class="field"><label for="lim">제한시간 (분)</label><input class="limin" id="lim" type="number" inputmode="numeric" min="0" max="180" step="1" value="'+(G.limit?Math.round(G.limit/60):0)+'"></div></div>'+
         '<div class="field"><label for="nrooms">방 개수</label><select class="roomsel" id="nrooms">'+opts+'</select></div>'+
         '<div class="field"><label>팀 이름 (비워 두면 방 번호로 표시)</label><div class="names">'+names+'</div></div>'+
-        '<p class="note">준비하면 연결된 모든 방 화면에 “출항 대기”가 뜹니다. 제한시간 0은 타이머 없이 진행합니다.</p>'+
+        '<label class="chk"><input type="checkbox" id="introchk"'+(G.intro?' checked':'')+'><span>시작할 때 인트로 영상(2분 56초)을 모든 방에 먼저 틀기<br><small style="color:var(--mist)">영상이 끝나는 순간 타이머가 시작됩니다.</small></span></label>'+
+        '<p class="note">준비하면 연결된 모든 방 화면에 “방주 앞 대기”가 뜹니다. 제한시간 0은 타이머 없이 진행합니다.</p>'+
         '<div class="btns"><button class="btn" type="submit">준비하기</button></div></form>';
     }else if(mode==='ready'){
-      h='<h3>출항 준비 완료</h3><p class="note">모든 방이 들어오면 전체 출항을 누르세요. 3초 카운트다운 뒤 모든 방의 타이머가 동시에 돌아갑니다.</p>'+
-        '<div class="btns"><button class="btn big" data-h="start">전체 출항 · 게임 시작</button></div>'+
+      h='<h3>시작 준비 완료</h3><p class="note">'+(G.intro?'모든 방이 들어오면 전체 시작을 누르세요. 모든 방에서 인트로 영상이 동시에 나오고, 영상이 끝나는 순간 타이머가 돌아갑니다.':'모든 방이 들어오면 전체 시작을 누르세요. 3초 카운트다운 뒤 모든 방의 타이머가 동시에 돌아갑니다.')+'</p>'+
+        '<div class="btns"><button class="btn big" data-h="start">전체 시작</button></div>'+
         '<div class="btns"><button class="btn sec" data-h="edit">코드 다시 정하기</button></div>';
     }else{
       var paused=G.status==='paused',arm=endArm>Date.now();
       h='<h3>항해 조종 · 모든 방</h3><div class="btns">'+
-        (paused?'<button class="btn" data-h="resume">재개</button>':'<button class="btn sec" data-h="pause"'+(ph==='countdown'?' disabled':'')+'>일시 정지</button>')+
+        (ph==='intro'?'<button class="btn" data-h="skip">영상 건너뛰고 바로 시작</button>':paused?'<button class="btn" data-h="resume">재개</button>':'<button class="btn sec" data-h="pause"'+(ph==='countdown'?' disabled':'')+'>일시 정지</button>')+
         (G.limit?'<button class="btn sec" data-h="add60">+1분</button><button class="btn sec" data-h="add300">+5분</button>':'')+
         '</div><div class="btns"><button class="btn '+(arm?'armed':'warnb')+'" data-h="end">'+(arm?'한 번 더 누르면 종료':'게임 종료')+'</button></div>'+
         '<p class="note">일시 정지와 시간 추가는 모든 방에 함께 적용됩니다. 방별 힌트는 오른쪽 카드에서 보내세요.</p>';
@@ -789,7 +826,7 @@ body.final .door{animation:rattle .45s infinite}
     el.innerHTML=h+'<p class="note" id="h-note" aria-live="polite"></p>';
     var f=document.getElementById('hf');
     if(f){
-      if(keep){document.getElementById('code').value=keep.c;document.getElementById('lim').value=keep.l;document.getElementById('nrooms').value=keep.n;document.querySelectorAll('.names input').forEach(function(x,i){x.value=keep.names[i]||''})}
+      if(keep){document.getElementById('introchk').checked=keep.i;document.getElementById('code').value=keep.c;document.getElementById('lim').value=keep.l;document.getElementById('nrooms').value=keep.n;document.querySelectorAll('.names input').forEach(function(x,i){x.value=keep.names[i]||''})}
       var c=document.getElementById('code');c.addEventListener('input',function(){c.value=c.value.replace(/\D/g,'').slice(0,4)});
       document.getElementById('nrooms').addEventListener('change',function(){var n=+this.value;document.querySelectorAll('.names input').forEach(function(x){x.hidden=+x.getAttribute('data-name')>n})});
       f.addEventListener('submit',function(e){e.preventDefault();prepare()});
@@ -806,7 +843,7 @@ body.final .door{animation:rattle .45s infinite}
         h+='<section class="card rcard" id="rc-'+r+'"><div class="hd"><h3 class="rname">'+esc(nameOf(r))+'</h3><span class="chips" id="rs-'+r+'"></span></div>'+
           '<div class="top" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap"><span class="mini" id="re-'+r+'" aria-label="지금 입력 중인 숫자"></span><span class="res" id="rr-'+r+'"></span></div>'+
           '<div class="guesses" id="rg-'+r+'"></div>'+
-          '<label for="hint-'+r+'">이 방에 보낼 힌트</label><textarea class="hintin" id="hint-'+r+'" maxlength="300" placeholder="예) 벽에 걸린 그림의 동물 수를 세어 보세요."></textarea>'+
+          '<label for="hint-'+r+'">이 방에 보낼 힌트</label><textarea class="hintin" id="hint-'+r+'" maxlength="300" placeholder="예) 방주에 들어간 동물은 몇 쌍이었을까요?"></textarea>'+
           '<div class="btns"><button class="btn" data-hint="'+r+'">힌트 보내기</button><button class="btn sec" data-unhint="'+r+'">지우기</button></div>'+
           '<p class="note" id="rh-'+r+'"></p></section>';
       }
@@ -850,8 +887,9 @@ body.final .door{animation:rattle .45s infinite}
     var names=[].map.call(document.querySelectorAll('.names input'),function(x){return x.value.trim().slice(0,20)});
     var salt=Math.random().toString(36).slice(2,10),editing=G.status==='ready';
     G.round=editing?G.round:G.round+1;G.code=c;G.salt=salt;G.hash=hash(salt+c);G.limit=lim*60;G.rooms=clampRoom(n)||3;G.names=names;
-    G.status='ready';G.startAt=0;G.pausedAt=0;G.endReason='';G.hints={};G.results={};
-    adminNote=['ok',G.round+'회차를 준비했습니다. 방 화면에 출항 대기가 떴습니다.'];commit();
+    G.intro=document.getElementById('introchk').checked;
+    G.status='ready';G.startAt=0;G.introAt=0;G.pausedAt=0;G.endReason='';G.hints={};G.results={};
+    adminNote=['ok',G.round+'회차를 준비했습니다. 방 화면에 “방주 앞 대기”가 떴습니다.'];commit();
   }
   app.addEventListener('click',function(e){
     if(role!=='host')return;
@@ -865,7 +903,11 @@ body.final .door{animation:rattle .45s infinite}
     var act=a.getAttribute('data-h'),t0=Date.now();
     if(act==='qr'){showQR=!showQR;updJoin();return}
     if(act==='edit'){G.status='idle';ctlKey='';adminNote=null;G.round=Math.max(0,G.round-1);commit();return}
-    if(act==='start'){G.status='running';G.startAt=t0+3500;G.pausedAt=0;adminNote=['ok','출항했습니다. 모든 방에서 카운트다운이 시작됩니다.'];commit();return}
+    if(act==='start'){G.status='running';G.pausedAt=0;
+      if(G.intro){G.introAt=t0+1500;G.startAt=G.introAt+INTRO_MS;adminNote=['ok','시작했습니다. 모든 방에서 인트로 영상이 나오고 있습니다.']}
+      else{G.introAt=0;G.startAt=t0+3500;adminNote=['ok','시작했습니다. 모든 방에서 카운트다운이 시작됩니다.']}
+      commit();return}
+    if(act==='skip'){G.introAt=0;G.startAt=t0+3500;adminNote=['ok','영상을 건너뛰었습니다. 3초 뒤 타이머가 시작됩니다.'];commit();return}
     if(act==='pause'){G.status='paused';G.pausedAt=t0;adminNote=['ok','모든 방을 일시 정지했습니다.'];commit();return}
     if(act==='resume'){G.startAt+=t0-G.pausedAt;G.status='running';G.pausedAt=0;adminNote=['ok','항해를 재개했습니다.'];commit();return}
     if(act==='add60'||act==='add300'){G.limit+=act==='add60'?60:300;adminNote=['ok',(act==='add60'?1:5)+'분을 더했습니다.'];commit();return}
@@ -899,7 +941,7 @@ body.final .door{animation:rattle .45s infinite}
     armed=true;audioStart();
     try{var de=document.documentElement;if(de.requestFullscreen)de.requestFullscreen().catch(noop)}catch(e){}
     try{if(navigator.wakeLock)navigator.wakeLock.request('screen').catch(noop)}catch(e){}
-    updGate();setTimeout(sendStatus,400);
+    updGate();if(lastPhase==='intro')syncIntro();setTimeout(sendStatus,400);
   }
   app.addEventListener('click',function(e){
     if(role!=='room')return;
@@ -979,6 +1021,8 @@ body.final .door{animation:rattle .45s infinite}
     }
     setTimeout(dropLoop,(30+Math.random()*110)/(1+tension*2.5));
   }
+  var ducked=false;
+  function duck(on){ducked=on;if(AC&&master)master.gain.setTargetAtTime(on?0.12:0.9,AC.currentTime,0.8)}
   function setRain(){
     if(!AC||!hissG)return;var now=AC.currentTime;
     hissG.gain.setTargetAtTime(.05+.13*tension,now,1.5);bodyG.gain.setTargetAtTime(.12+.2*tension,now,1.5);
@@ -1019,6 +1063,7 @@ body.final .door{animation:rattle .45s infinite}
     var ph=phase();
     if(ph!==lastPhase){var prev=lastPhase;renderRoom();onPhase(prev,ph);sendStatus()}
     var c=document.getElementById('clock');if(c)c.textContent=mmss(remaining());
+    if(ph==='intro')syncIntro();
     if(ph==='countdown'){
       var n=Math.max(1,Math.ceil((S.startAt-now())/1000));
       if(n!==lastCount){lastCount=n;var cn=document.getElementById('cnum');if(cn){cn.textContent=n;cn.style.animation='none';void cn.offsetHeight;cn.style.animation=''}sfx.beep(n)}
