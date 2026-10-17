@@ -314,7 +314,7 @@ body.final .door{animation:rattle .45s infinite}
 .roomsel{font:inherit;padding:10px;border-radius:10px;border:1px solid var(--brass-dim);background:var(--pitch);color:var(--brass);font-family:var(--num);font-size:20px;text-align:center}
 .narrow{width:min(460px,100%);display:flex;flex-direction:column;gap:16px}
 </style>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
 </head>
 <body>
@@ -343,7 +343,28 @@ body.final .door{animation:rattle .45s infinite}
   function base(){return location.origin+location.pathname}
   var PH={connecting:['연결 중','idle'],nohost:['선장실 없음','stop'],idle:['대기','idle'],ready:['방주 앞 대기','wait'],intro:['인트로 영상','wait'],go:['시작 화면','wait'],countdown:['카운트다운','wait'],running:['진행 중','run'],paused:['일시 정지','wait'],solved:['탈출 성공','run'],timeout:['시간 초과','stop'],ended:['종료','idle']};
   var FOOT='<div class="foot">300 × 50 × 30 <span>규빗</span><br><span>창세기 6:15 · 방주의 길이, 너비, 높이</span></div>';
-  var hasPeer=typeof window.Peer==='function';
+  var hasBus=!!(window.mqtt&&window.mqtt.connect);
+  // Every screen talks through public message servers over the internet, so venue Wi-Fi that
+  // keeps devices from seeing each other doesn't matter. Two servers at once: if one is down, the other carries on.
+  var BROKERS=['wss://broker.emqx.io:8084/mqtt','wss://broker.hivemq.com:8884/mqtt'],TOPIC='noahs-ark-door/v1/';
+  function Bus(onMsg,onChange){
+    var cs=[],subs=[],up=0;
+    BROKERS.forEach(function(u){
+      var c;try{c=mqtt.connect(u,{clientId:'ark-'+Math.random().toString(16).slice(2,12),clean:true,reconnectPeriod:3000,connectTimeout:8000,keepalive:20})}catch(e){return}
+      c._up=false;
+      c.on('connect',function(){if(!c._up){c._up=true;up++}subs.forEach(function(t){c.subscribe(t,{qos:0})});onChange()});
+      c.on('close',function(){if(c._up){c._up=false;up--;onChange()}});
+      c.on('message',function(t,b,pk){var m;try{m=JSON.parse(b.toString())}catch(e){return}onMsg(t,m,!!(pk&&pk.retain))});
+      c.on('error',noop);
+      cs.push(c);
+    });
+    return {
+      sub:function(t){subs.push(t);cs.forEach(function(c){if(c._up)c.subscribe(t,{qos:0})})},
+      pub:function(t,m,retain){var b=JSON.stringify(m);cs.forEach(function(c){if(c._up)c.publish(t,b,{qos:0,retain:!!retain})})},
+      up:function(){return up>0},
+      end:function(){cs.forEach(function(c){try{c.end(true)}catch(e){}})}
+    };
+  }
 
   /* ---------- routing ---------- */
   var q=new URLSearchParams(location.search),role,taps=[];
@@ -383,7 +404,7 @@ body.final .door{animation:rattle .45s infinite}
      ===================================================================== */
   var GAME=(ls('ark-room-g')||'').toUpperCase(),ROOM=+(ls('ark-room-r')||0);
   var S=null,offset=0,R=null,entry='',busy=false,armed=false,lastPhase='',freshHint=false,lockTimer=null,bowRaf=0;
-  var peer=null,conn=null,linkState='connecting',lastHostMsg=0,retryT=null;
+  var bus=null,CID=Math.random().toString(36).slice(2,10),linkState='connecting',lastHostMsg=0,busUpAt=0;
   function now(){return Date.now()+offset}
   function limitMs(){return S&&S.limit?S.limit*1000:0}
   function remaining(){
@@ -627,13 +648,14 @@ body.final .door{animation:rattle .45s infinite}
     lamp.innerHTML='<span class="dot '+t[0]+'"></span>'+t[1];
   }
   function sendStatus(){
-    if(!conn||!conn.open||!R)return;
-    try{conn.send({t:'status',room:ROOM,round:R.round,phase:phase(),tries:R.tries,entry:entry,guesses:R.guesses.slice(-6),armed:!!(armed&&live()),solved:!!R.solved,rem:R.solved&&R.openRem!==Infinity?Math.round(R.openRem):null})}catch(e){}
+    if(!bus||!bus.up()||!R)return;
+    bus.pub(TOPIC+GAME+'/status/'+ROOM+'/'+CID,{t:'status',room:ROOM,round:R.round,phase:phase(),tries:R.tries,entry:entry,guesses:R.guesses.slice(-6),armed:!!(armed&&live()),solved:!!R.solved,rem:R.solved&&R.openRem!==Infinity?Math.round(R.openRem):null});
   }
-  function onHostMsg(m){
+  function onHostMsg(m,retained){
     if(!m||m.t!=='state')return;
-    lastHostMsg=Date.now();
-    if(typeof m.now==='number')offset=m.now-Date.now();
+    // a retained message is the cabin's last word, possibly from long ago: use it, but don't trust its clock
+    if(!retained){lastHostMsg=Date.now();if(typeof m.now==='number')offset=m.now-Date.now();if(linkState!=='ok'){linkState='ok';updLink()}}
+    else if(typeof m.now==='number'&&Math.abs(m.now-Date.now())<20000)offset=m.now-Date.now();
     var prevRound=S&&S.round;
     S={round:+m.round||0,salt:String(m.salt||''),hash:String(m.hash||''),limit:+m.limit||0,status:String(m.status||'idle'),startAt:+m.startAt||0,introAt:+m.introAt||0,intro:!!m.intro,pausedAt:+m.pausedAt||0,endReason:String(m.endReason||''),
        hint:m.hint&&m.hint.text?{text:String(m.hint.text).slice(0,300),at:+m.hint.at||0}:null,name:String(m.name||'').slice(0,30),result:m.result||null};
@@ -653,27 +675,14 @@ body.final .door{animation:rattle .45s infinite}
     if(prev==='running'&&ph==='timeout'){strike(1);sfx.drown()}
     if(prev&&prev!=='paused'&&ph==='paused'&&live())sfx.thump(AC.currentTime,90,.5);
   }
-  function retry(ms){clearTimeout(retryT);retryT=setTimeout(connectHost,ms)}
   function roomNet(){
-    if(!hasPeer){linkState='lost';updLink();return}
-    try{if(peer&&!peer.destroyed)peer.destroy()}catch(e){}
-    peer=new Peer({debug:0});
-    peer.on('open',function(){connectHost()});
-    peer.on('disconnected',function(){setTimeout(function(){if(peer&&!peer.destroyed&&peer.disconnected)try{peer.reconnect()}catch(e){}},2000)});
-    peer.on('error',function(e){
-      if(e&&e.type==='peer-unavailable'){if(linkState!=='lost')linkState=S?'lost':'nohost';updLink();if(!S)renderRoom();retry(4000);return}
-      if(peer&&peer.destroyed){linkState='lost';updLink();setTimeout(roomNet,5000)}
+    if(!hasBus){linkState='lost';updLink();return}
+    var mine=TOPIC+GAME+'/state/'+ROOM;
+    bus=Bus(function(t,m,retained){if(t===mine)onHostMsg(m,retained)},function(){
+      if(bus.up()){if(!busUpAt)busUpAt=Date.now();sendStatus()}
+      else{busUpAt=0;if(linkState==='ok'){linkState='lost';updLink()}}
     });
-  }
-  function connectHost(){
-    if(!peer||peer.destroyed){roomNet();return}
-    if(peer.disconnected){retry(3000);return}
-    var c=peer.connect(PREFIX+GAME,{serialization:'json',reliable:true});conn=c;
-    c.on('open',function(){if(conn!==c)return;linkState='ok';lastHostMsg=Date.now();updLink();try{c.send({t:'hello',room:ROOM})}catch(e){}sendStatus()});
-    c.on('data',function(m){if(conn===c)onHostMsg(m)});
-    c.on('close',function(){if(conn!==c)return;conn=null;linkState='lost';updLink();retry(3000)});
-    c.on('error',noop);
-    setTimeout(function(){if(conn===c&&!c.open){try{c.close()}catch(e){}conn=null;retry(1000)}},10000);
+    bus.sub(mine);
   }
   function startRoom(){
     var saved=lsj('ark-room-state-'+GAME+'-'+ROOM);
@@ -681,14 +690,17 @@ body.final .door{animation:rattle .45s infinite}
     loadR();renderRoom();updLink();updGate();roomNet();
     setInterval(function(){
       sendStatus();
-      if(linkState==='ok'&&Date.now()-lastHostMsg>15000&&conn){try{conn.close()}catch(e){}conn=null;linkState='lost';updLink();retry(500)}
+      var was=linkState,quiet=Date.now()-lastHostMsg>15000;
+      if(!bus||!bus.up())linkState=S||was==='lost'?'lost':'connecting';
+      else if(quiet&&busUpAt&&Date.now()-busUpAt>8000)linkState='nohost';
+      if(linkState!==was){updLink();if(!S)renderRoom()}
     },4000);
   }
 
   /* =====================================================================
      CAPTAIN'S CABIN — the host: holds the code and drives every room
      ===================================================================== */
-  var G=null,hpeer=null,conns={},netState='connecting',ctlKey='',roomsKey='',adminNote=null,endArm=0,newArm=0,showQR=false;
+  var G=null,hbus=null,screens={},netState='connecting',ctlKey='',roomsKey='',adminNote=null,endArm=0,newArm=0,showQR=false;
   function loadG(){
     G=lsj('ark-host');
     if(!G||!G.id)G={id:newId(),round:0,rooms:3,names:['','','','','',''],code:'',salt:'',hash:'',limit:900,intro:true,status:'idle',startAt:0,introAt:0,pausedAt:0,endReason:'',hints:{},results:{}};
@@ -713,18 +725,16 @@ body.final .door{animation:rattle .45s infinite}
     return {t:'state',now:Date.now(),round:G.round,salt:G.salt,hash:G.hash,limit:G.limit,status:G.status,startAt:G.startAt,introAt:G.introAt,intro:G.intro,pausedAt:G.pausedAt,endReason:G.endReason,
       hint:G.hints[r]||null,name:nameOf(r),result:G.results[r]||null};
   }
-  function sendTo(e){if(e.conn.open&&e.room)try{e.conn.send(statePayload(e.room))}catch(x){}}
-  function broadcast(){Object.keys(conns).forEach(function(k){sendTo(conns[k])})}
+  // each room's state is kept on the server (retained), so a screen that joins later gets it at once
+  function broadcast(){if(!hbus||!hbus.up())return;for(var r=1;r<=6;r++)hbus.pub(TOPIC+G.id+'/state/'+r,statePayload(r),true)}
   function commit(){saveG();broadcast();updHost()}
-  function roomConns(r){var a=[],t=Date.now();Object.keys(conns).forEach(function(k){var e=conns[k];if(e.room===r&&e.conn.open&&t-e.last<15000)a.push(e)});return a}
+  function roomConns(r){var a=[],t=Date.now();Object.keys(screens).forEach(function(k){var e=screens[k];if(e.room===r&&t-e.last<12000)a.push(e)});return a}
   function bestStatus(r){var b=null;roomConns(r).forEach(function(e){if(e.st&&(!b||(e.st.solved&&!b.solved)||e.st.tries>b.tries))b=e.st});return b}
-  function onRoomMsg(c,m){
-    if(!m||typeof m!=='object')return;
-    var e=conns[c.peer]||(conns[c.peer]={conn:c,room:0,last:0,st:null});
-    e.last=Date.now();
-    if(m.room)e.room=clampRoom(m.room);
-    if(m.t==='hello')sendTo(e);
-    if(m.t==='status'&&e.room){
+  function onRoomMsg(cid,room,m){
+    if(!m||typeof m!=='object'||!room)return;
+    var e=screens[cid]||(screens[cid]={room:room,last:0,st:null});
+    e.last=Date.now();e.room=room;
+    if(m.t==='status'){
       e.st={round:+m.round||0,phase:String(m.phase||''),tries:+m.tries||0,entry:String(m.entry||'').replace(/\D/g,'').slice(0,4),
         guesses:(Array.isArray(m.guesses)?m.guesses:[]).slice(-6).map(function(g){return String(g).replace(/\D/g,'').slice(0,4)}),armed:!!m.armed,solved:!!m.solved,rem:typeof m.rem==='number'?m.rem:null};
       if(e.st.solved&&e.st.round===G.round&&(G.status==='running'||G.status==='paused')&&!G.results[e.room]){
@@ -743,26 +753,20 @@ body.final .door{animation:rattle .45s infinite}
     var rem=hRemaining();
     for(var r=1;r<=G.rooms;r++)if(!G.results[r]){var b=bestStatus(r);G.results[r]={kind:kind,remaining:kind==='timeout'?0:(rem===Infinity?0:Math.max(0,Math.round(rem))),tries:b?b.tries:0,at:Date.now()}}
   }
-  var hostRetry=null;
   function hostNet(){
-    if(!hasPeer){netState='offline';updNet();return}
-    clearTimeout(hostRetry);
-    try{if(hpeer&&!hpeer.destroyed)hpeer.destroy()}catch(e){}
+    if(hbus)hbus.end();
+    if(!hasBus){netState='offline';updNet();return}
     netState='connecting';updNet();
-    var p=hpeer=new Peer(PREFIX+G.id,{debug:0});
-    p.on('open',function(){if(hpeer!==p)return;netState='online';updNet()});
-    p.on('connection',function(c){
-      c.on('open',function(){conns[c.peer]=conns[c.peer]||{conn:c,room:0,last:Date.now(),st:null};conns[c.peer].conn=c;conns[c.peer].last=Date.now()});
-      c.on('data',function(m){onRoomMsg(c,m)});
-      c.on('close',function(){var e=conns[c.peer];delete conns[c.peer];if(e&&e.room)updRoomCard(e.room)});
-      c.on('error',noop);
+    var b=hbus=Bus(function(t,m,retained){
+      if(retained)return;
+      var p=t.split('/'); // noahs-ark-door/v1/<game>/status/<room>/<screen>
+      if(p[2]!==G.id||p[3]!=='status')return;
+      onRoomMsg(p[5]||'?',clampRoom(p[4]),m);
+    },function(){
+      if(hbus!==b)return;
+      netState=b.up()?'online':'reconnecting';updNet();if(b.up())broadcast();
     });
-    p.on('disconnected',function(){if(hpeer!==p)return;netState='reconnecting';updNet();setTimeout(function(){if(hpeer===p&&!p.destroyed&&p.disconnected)try{p.reconnect()}catch(e){}},2000)});
-    p.on('error',function(e){
-      if(hpeer!==p)return;
-      if(e&&e.type==='unavailable-id'){netState='taken';updNet();try{p.destroy()}catch(x){}hostRetry=setTimeout(hostNet,6000);return}
-      if(p.destroyed){netState='reconnecting';updNet();hostRetry=setTimeout(hostNet,5000)}
-    });
+    b.sub(TOPIC+G.id+'/status/#');
   }
   function link(r){return base()+'?g='+G.id+'&r='+r}
 
@@ -778,8 +782,8 @@ body.final .door{animation:rattle .45s infinite}
   function updHost(){if(role!=='host')return;updJoin();updHStatus();updCtl();updRooms();updRank()}
   function updNet(){var n=document.getElementById('h-net');if(!n){updJoin();return}n.innerHTML=netText()}
   function netText(){
-    var t={connecting:['wait','연결 서버에 접속하는 중'],online:['ok','방 화면을 받을 준비가 됐습니다'],reconnecting:['wait','연결 서버에 다시 접속하는 중 · 이미 연결된 방은 그대로 유지됩니다'],
-      taken:['bad','이 게임 번호가 다른 창에서 열려 있습니다. 그 창을 닫으면 자동으로 다시 연결합니다.'],offline:['bad','연결 라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인하고 새로고침하세요.']}[netState];
+    var t={connecting:['wait','연결 서버에 접속하는 중'],online:['ok','방 화면을 받을 준비가 됐습니다'],reconnecting:['wait','연결 서버에 다시 접속하는 중 · 방 화면의 게임은 그대로 진행됩니다'],
+      taken:['bad','이 게임 번호가 다른 창에서 열려 있습니다.'],offline:['bad','연결 라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인하고 새로고침하세요.']}[netState];
     return '<span class="dot '+t[0]+'"></span>'+t[1];
   }
   function updJoin(){
@@ -926,7 +930,7 @@ body.final .door{animation:rattle .45s infinite}
     if(act==='add60'||act==='add300'){G.limit+=act==='add60'?60:300;adminNote=['ok',(act==='add60'?1:5)+'분을 더했습니다.'];commit();return}
     if(act==='end'){if(endArm<t0){endArm=t0+3000;updCtl();setTimeout(updCtl,3100);return}endArm=0;closeOut('ended');G.status='ended';G.endReason='manual';adminNote=['ok','게임을 종료했습니다.'];commit();return}
     if(act==='newid'){if(newArm<t0){newArm=t0+3000;a.textContent='한 번 더 누르면 새 번호 · 방 화면을 다시 연결해야 합니다';setTimeout(function(){a.textContent='새 게임 번호 만들기'},3000);return}
-      newArm=0;G.id=newId();saveG();conns={};hostNet();updHost();return}
+      newArm=0;G.id=newId();saveG();screens={};hostNet();updHost();return}
   });
   function startHost(){
     ls('ark-role','host');loadG();renderHost();hostNet();
@@ -936,7 +940,7 @@ body.final .door{animation:rattle .45s infinite}
       if(G.status==='running'&&G.limit&&Date.now()>=G.startAt+G.limit*1000){closeOut('timeout');G.status='ended';G.endReason='time';commit()}
       var ph=hPhase();if(ph!==lastPh){lastPh=ph;updHost()}else updHClock();
     },250);
-    setInterval(function(){var t=Date.now();Object.keys(conns).forEach(function(k){if(t-conns[k].last>20000){try{conns[k].conn.close()}catch(e){}delete conns[k]}});for(var r=1;r<=G.rooms;r++)updRoomCard(r)},2000);
+    setInterval(function(){var t=Date.now();Object.keys(screens).forEach(function(k){if(t-screens[k].last>20000)delete screens[k]});for(var r=1;r<=G.rooms;r++)updRoomCard(r)},2000);
   }
 
   /* ---------- shared: gate, keys, rain, sound, clock ---------- */
