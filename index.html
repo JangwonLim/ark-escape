@@ -337,7 +337,7 @@ body.final .door{animation:rattle .45s infinite}
   function mmss(ms){if(ms===Infinity||ms==null)return'—';ms=Math.max(0,Math.ceil(ms/1000));var m=Math.floor(ms/60),x=ms%60;return (m<10?'0':'')+m+':'+(x<10?'0':'')+x}
   function toRoman(n){if(!n)return'—';var r='',m=[[1000,'M'],[900,'CM'],[500,'D'],[400,'CD'],[100,'C'],[90,'XC'],[50,'L'],[40,'XL'],[10,'X'],[9,'IX'],[5,'V'],[4,'IV'],[1,'I']];m.forEach(function(p){while(n>=p[0]){r+=p[1];n-=p[0]}});return r}
   function clampRoom(n){n=Math.round(+n);return n>=1&&n<=6?n:0}
-  var INTRO_SRC='intro.mp4',INTRO_MS=176333,GO_MS=3200; // the intro film ends on “15:00 이제 시작이다”
+  var INTRO_SRC='intro.mp4?v=2',INTRO_MS=176400,GO_MS=3200; // the intro film ends on “15:00 이제 시작이다”
   var PREFIX='noahs-ark-door-v1-',ALPHA='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   function newId(){var s='';for(var i=0;i<4;i++)s+=ALPHA[Math.floor(Math.random()*ALPHA.length)];return s}
   function base(){return location.origin+location.pathname}
